@@ -229,138 +229,158 @@ with tab_ingestion:
                     temp_pdf_path = tmp.name
                     
                 try:
-                    from langchain_community.document_loaders import PyPDFLoader
-                    loader = PyPDFLoader(temp_pdf_path)
-                    pages = loader.load()
-                    full_text = "\n".join([page.page_content for page in pages])
-                    st.write(f"✅ Extracted {len(pages)} pages ({len(full_text.split())} words).")
-                    
-                    st.write("2. Extracting Paper Metadata (Title, Year, Description)...")
                     from src.agent.nodes import get_llm
                     title_llm = get_llm()
-                    import json
-                    meta_prompt = f"Extract the exact title, publication year (as an integer, default to 2026 if absent), and a short 2-3 sentence abstract/description of the scientific paper from this text. Return your response strictly as a JSON object with keys 'title', 'year', 'description', with no markdown formatting.\n\n{pages[0].page_content[:2000]}"
-                    meta_raw = title_llm.invoke(meta_prompt).content.strip()
-                    if meta_raw.startswith("```json"): meta_raw = meta_raw[7:]
-                    elif meta_raw.startswith("```"): meta_raw = meta_raw[3:]
-                    if meta_raw.endswith("```"): meta_raw = meta_raw[:-3]
-                    try:
-                        meta_json = json.loads(meta_raw.strip())
-                        paper_title = meta_json.get("title", "Unknown Title")
-                        paper_year = meta_json.get("year", 2026)
-                        paper_desc = meta_json.get("description", "")
-                    except:
-                        paper_title = meta_raw[:100] # Fallback
-                        paper_year = 2026
-                        paper_desc = "Description parsing failed."
-                    st.write(f"✅ Metadata identified: **{paper_title}** ({paper_year})")
                     
-                    st.write("3. Local Preprocessing (scispaCy Sentence Segmentation)...")
-                
-                    from src.tools.text_processing import extract_dense_sentences
-                    chunk = extract_dense_sentences(full_text, max_chars=4000)
-                    st.write("   - scispaCy filtered raw sentences down to dense sentences containing unique scientific entities.")
-                
-                    st.write("4. Structured LLM Triplet Extraction...")
-                
-                    from pydantic import BaseModel, Field
-                    from typing import List
-                    from rapidfuzz import fuzz
-                    from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
-                
-                    class ExtractedGraphTriplet(BaseModel):
-                        subject: str = Field(description="The entity doing the action (usually the paper name)")
-                        predicate: str = Field(description="Relationship type: USES_METHOD, STUDIES, BELONGS_TO, AUTHORED_BY, AFFILIATED_WITH")
-                        object: str = Field(description="The target entity name, e.g., 'Graph Neural Networks', 'Jane Doe', or 'Stanford University'")
-                        object_type: str = Field(description="The type of the object: Concept, Method, Field, Dataset, Author, or Organization")
-                        section: str = Field(description="The section this was extracted from: Introduction, Methodology, or Related Work")
-
-                    class DocumentExtractionSchema(BaseModel):
-                        triplets: List[ExtractedGraphTriplet]
-                
-                    # Initialize LLM
-                    hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-                    llm = ChatHuggingFace(llm=HuggingFaceEndpoint(
-                        repo_id="Qwen/Qwen2.5-72B-Instruct",
-                        task="text-generation",
-                        max_new_tokens=4096,
-                        huggingfacehub_api_token=hf_token
-                    ))
-                
-                    prompt = f"""
-    Extract scientific relationships from this text chunk into structured triplets. 
-    The paper is titled '{paper_title}'. Make sure to extract Author and Organization entities if present.
-
-    Output your response strictly as a JSON object matching this schema, with no markdown formatting:
-    {{
-        "triplets": [
-            {{
-                "subject": "string (entity doing the action)",
-                "predicate": "string (USES_METHOD, STUDIES, BELONGS_TO, AUTHORED_BY, AFFILIATED_WITH)",
-                "object": "string (target entity)",
-                "object_type": "string (Concept, Method, Field, Dataset, Author, or Organization)",
-                "section": "string (Introduction, Methodology, or Related Work)"
-            }}
-        ]
-    }}
-
-    {chunk}
-    """
-                
-                    st.write("   - Calling Qwen 2.5 API...")
-                    raw_response = llm.invoke(prompt).content
-                
-                    try:
-                        import json
-                        raw_clean = raw_response.strip()
-                        if raw_clean.startswith("```json"):
-                            raw_clean = raw_clean[7:]
-                        elif raw_clean.startswith("```"):
-                            raw_clean = raw_clean[3:]
-                        if raw_clean.endswith("```"):
-                            raw_clean = raw_clean[:-3]
-                        
-                        parsed_json = json.loads(raw_clean.strip())
-                        extraction = DocumentExtractionSchema(**parsed_json)
-                    except Exception as e:
-                        raise ValueError(f"Failed to parse LLM JSON: {e}\nRaw Output: {raw_response}")
-                
-                    st.write("5. Canonicalization and Graph Injection...")
-                
-                    # Build canonical map of existing entities
-                    existing_entities = {n: d.get("name", n) for n, d in kg.graph.nodes(data=True)}
-                
-                    new_paper_id = f"Paper:{len(kg.graph.nodes)+1}"
-                    kg.add_entity(new_paper_id, "Paper", {"name": paper_title, "year": paper_year, "description": paper_desc})
-                
-                    for trip in extraction.triplets:
-                        # Fuzzy match the object
-                        extracted_clean = trip.object.strip().lower()
-                        canonical_id = None
-                        
-                        from rapidfuzz import process, fuzz, utils
-                        match = process.extractOne(extracted_clean, list(existing_entities.values()), scorer=fuzz.ratio, processor=utils.default_process)
-                        if match and match[1] >= 85:
-                            for k, v in existing_entities.items():
-                                if v == match[0]:
-                                    canonical_id = k
-                                    break
-                            
-                        if not canonical_id:
-                            # Create new unique node
-                            canonical_id = f"{trip.object_type}:{trip.object.replace(' ', '')}"
-                            kg.add_entity(canonical_id, trip.object_type, {"name": trip.object})
-                            existing_entities[canonical_id] = trip.object
-                            st.write(f"   - Added New Node: {trip.object}")
-                        else:
-                            st.write(f"   - Mapped to Canonical Node: {existing_entities[canonical_id]}")
-                        
-                        # Weight modifier based on section heuristic
-                        weight = 1.0
-                        if trip.section.lower() == "methodology": weight = 1.5
-                        elif trip.section.lower() == "related work": weight = 0.8
+                    from src.ingestion.docling_parser import DoclingIngestor
+                    ingestor = DoclingIngestor()
                     
-                        kg.add_relation(new_paper_id, canonical_id, trip.predicate, {"weight": weight, "section": trip.section})
+                    st.write("2. Parsing document structure using Docling...")
+                    doc = ingestor.parse_pdf(temp_pdf_path)
+                    
+                    st.write("3. Extracting knowledge graph via LLM (Qwen 72B)...")
+                    paper_schema = ingestor.extract_graph(doc)
+                    paper_title = paper_schema.title
+                    paper_desc = paper_schema.abstract
+                    
+                    st.write("3b. Extracting metadata entities via spaCy NER...")
+                    from src.tools.text_processing import extract_dense_sentences_and_entities, normalize_date_to_year
+                    full_text = doc.export_to_markdown()
+                    _, metadata_entities = extract_dense_sentences_and_entities(full_text, max_chars=6000)
+                    
+                    st.write("4. Canonicalization, Normalization, and Graph Injection...")
+                    
+                    # Normalization helpers
+                    import re
+                    def normalize_doi(doi: str) -> str:
+                        if not doi: return ""
+                        d = doi.lower().strip()
+                        d = re.sub(r'^https?://doi\.org/', '', d)
+                        d = re.sub(r'^doi:', '', d)
+                        return d.strip()
+
+                    def normalize_title(title: str) -> str:
+                        if not title: return ""
+                        t = title.lower().strip()
+                        t = re.sub(r'\s+', ' ', t)
+                        t = re.sub(r'[^\w\s]', '', t)
+                        return t
+
+                    def normalize_name(name: str) -> str:
+                        if not name: return ""
+                        return re.sub(r'\s+', ' ', name.lower().strip())
+                        
+                    prov_node = {"provenance": {"document": uploaded_pdf.name}}
+                    prov_edge = {"source": "extracted", "confidence": 1.0, "provenance": {"document": uploaded_pdf.name}}
+                    
+                    # Try to extract a real publication year from spaCy DATE entities
+                    extracted_year = paper_schema.year
+                    for ent in metadata_entities:
+                        if ent["label"] == "DATE":
+                            parsed_year = normalize_date_to_year(ent["text"])
+                            if parsed_year and 1900 <= parsed_year <= 2030:
+                                extracted_year = parsed_year
+                                break  # Use the first plausible year
+                    
+                    paper_doi_norm = normalize_doi(paper_schema.doi)
+                    paper_title_norm = normalize_title(paper_schema.title)
+                    
+                    # Create the core paper node
+                    new_paper_id = f"Paper:{paper_doi_norm if paper_doi_norm else paper_title_norm + str(extracted_year)}"
+                    new_paper_id = new_paper_id.replace(' ', '')
+                    
+                    kg.add_entity(new_paper_id, "Paper", {
+                        "name": paper_title, 
+                        "title_norm": paper_title_norm,
+                        "year": extracted_year, 
+                        "description": paper_desc,
+                        "doi": paper_doi_norm,
+                        **prov_node
+                    })
+                    
+                    # Add authors from LLM extraction
+                    seen_authors = set()
+                    for author in paper_schema.authors:
+                        author_norm = normalize_name(author.name)
+                        author_id = f"Author:{author_norm.replace(' ', '')}"
+                        kg.add_entity(author_id, "Author", {"name": author.name, "name_norm": author_norm, **prov_node})
+                        kg.add_relation(author_id, new_paper_id, "AUTHORED", prov_edge)
+                        seen_authors.add(author_norm)
+                    
+                    # Merge spaCy PERSON entities as additional authors (deduplicated)
+                    spacy_prov = {"source": "extracted", "confidence": 0.85, "provenance": {"document": uploaded_pdf.name, "extractor": "spacy_ner"}}
+                    for ent in metadata_entities:
+                        if ent["label"] == "PERSON":
+                            name_norm = normalize_name(ent["text"])
+                            if name_norm not in seen_authors and len(name_norm) > 3:
+                                author_id = f"Author:{name_norm.replace(' ', '')}"
+                                kg.add_entity(author_id, "Author", {"name": ent["text"], "name_norm": name_norm, **prov_node})
+                                kg.add_relation(author_id, new_paper_id, "AUTHORED", spacy_prov)
+                                seen_authors.add(name_norm)
+                    
+                    # Add organizations from spaCy ORG entities
+                    for ent in metadata_entities:
+                        if ent["label"] == "ORG":
+                            org_norm = normalize_name(ent["text"])
+                            if len(org_norm) > 2:
+                                org_id = f"Organization:{org_norm.replace(' ', '')}"
+                                kg.add_entity(org_id, "Organization", {"name": ent["text"], **prov_node})
+                                kg.add_relation(org_id, new_paper_id, "AFFILIATED_WITH", spacy_prov)
+                        
+                    # Add methods
+                    for method in paper_schema.uses_methods:
+                        method_id = f"Method:{method.name.replace(' ', '')}"
+                        kg.add_entity(method_id, "Method", {"name": method.name, "category": method.category, **prov_node})
+                        kg.add_relation(new_paper_id, method_id, "USES_METHOD", prov_edge)
+                        
+                    # Add datasets
+                    for dataset in paper_schema.uses_datasets:
+                        dataset_id = f"Dataset:{dataset.name.replace(' ', '')}"
+                        kg.add_entity(dataset_id, "Dataset", {"name": dataset.name, **prov_node})
+                        kg.add_relation(new_paper_id, dataset_id, "USES_DATASET", prov_edge)
+                        
+                    # Add problems
+                    for problem in paper_schema.addresses_problems:
+                        problem_id = f"ResearchProblem:{problem.name.replace(' ', '')}"
+                        kg.add_entity(problem_id, "ResearchProblem", {"name": problem.name, **prov_node})
+                        kg.add_relation(new_paper_id, problem_id, "ADDRESSES", prov_edge)
+                        
+                    # Add metrics
+                    for metric in paper_schema.evaluated_by:
+                        metric_id = f"Metric:{metric.name.replace(' ', '')}"
+                        kg.add_entity(metric_id, "Metric", {"name": metric.name, **prov_node})
+                        kg.add_relation(new_paper_id, metric_id, "EVALUATED_BY", {"value": metric.value, **prov_edge})
+                        
+                    # Add results
+                    for result in paper_schema.reports_results:
+                        res_id = f"Result:{result.description.replace(' ', '')[:40]}"
+                        kg.add_entity(res_id, "Result", {"description": result.description, "improvement": result.improvement, **prov_node})
+                        kg.add_relation(new_paper_id, res_id, "REPORTS", prov_edge)
+                        
+                    # Paper relationships helper
+                    def link_papers(citations, rel_type):
+                        for citation in citations:
+                            cite_norm = normalize_title(citation)
+                            cite_id = None
+                            from rapidfuzz import process, fuzz
+                            existing_papers = [(n, d.get("title_norm", normalize_title(d.get("name", "")))) for n, d in kg.graph.nodes(data=True) if n.startswith("Paper:")]
+                            if existing_papers:
+                                match = process.extractOne(cite_norm, [p[1] for p in existing_papers], scorer=fuzz.ratio)
+                                if match and match[1] >= 90:
+                                    cite_id = existing_papers[match[2]][0]
+                            if not cite_id:
+                                cite_id = f"Paper:{cite_norm.replace(' ', '')}"
+                                kg.add_entity(cite_id, "Paper", {"name": citation, "title_norm": cite_norm, "stub": True, **prov_node})
+                            kg.add_relation(new_paper_id, cite_id, rel_type, prov_edge)
+
+                    link_papers(paper_schema.cites, "CITES")
+                    link_papers(paper_schema.builds_on, "BUILDS_ON")
+                    link_papers(paper_schema.extends, "EXTENDS")
+                    link_papers(paper_schema.compares_to, "COMPARES")
+                    link_papers(paper_schema.contradicts, "CONTRADICTS")
+                        
+                    st.write(f"✅ Successfully ingested into NetworkX: **{paper_schema.title}**")
+                    st.write(f"   - Authors (LLM + spaCy): {len(seen_authors)} | Orgs (spaCy): {sum(1 for e in metadata_entities if e['label'] == 'ORG')} | Year: {extracted_year}")
 
                     st.write("6. Cross-Paper Auto-Linking...")
                     from src.tools.grounding import get_cross_encoder
@@ -368,7 +388,7 @@ with tab_ingestion:
                         encoder = get_cross_encoder()
                         existing_papers = []
                         for n, data in kg.graph.nodes(data=True):
-                            if n.startswith("Paper:") and n != new_paper_id:
+                            if n.startswith("Paper:") and not data.get("stub") and n != new_paper_id:
                                 existing_papers.append((n, data.get("description", data.get("name", "")), data.get("name", n)))
                         
                         semantic_edges_added = 0
@@ -391,7 +411,7 @@ with tab_ingestion:
                                     except:
                                         relation_name = "HIGHLY_RELATED_TO"
                                         
-                                    kg.add_relation(new_paper_id, target_node, relation_name, {"score": float(score), "rationale": "Ingestion auto-linking"})
+                                    kg.add_relation(new_paper_id, target_node, relation_name, {"score": float(score), "source": "algorithm", "rationale": "Ingestion auto-linking"})
                                     semantic_edges_added += 1
                         st.write(f"   - Added {semantic_edges_added} dynamic semantic edges to existing papers.")
                     except Exception as ce_e:
