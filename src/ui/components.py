@@ -27,18 +27,24 @@ def render_temporal_chart(trend_data: dict, method_name: str, domain_name: str):
         mode="lines+markers+text",
         text=counts,
         textposition="top center",
-        line=dict(color="#38BDF8", width=3),
-        marker=dict(size=8, color="#0284C7")
+        textfont=dict(size=11, color="#A5B4FC"),
+        line=dict(color="#818CF8", width=3),
+        marker=dict(size=8, color="#6366F1", line=dict(width=2, color="#A5B4FC")),
+        fill="tozeroy",
+        fillcolor="rgba(99, 102, 241, 0.08)"
     ))
 
     fig.update_layout(
-        title=f"Adoption Velocity: <b>{method_name}</b> in <b>{domain_name}</b>",
-        paper_bgcolor="#1E293B",
-        plot_bgcolor="#0F172A",
-        font=dict(color="#F8FAFC"),
-        margin=dict(l=20, r=20, t=40, b=20),
-        xaxis=dict(gridcolor="#334155", title="Publication Year"),
-        yaxis=dict(gridcolor="#334155", title="Paper Count"),
-        height=300
+        title=dict(
+            text=f"<b>{method_name}</b> in <b>{domain_name}</b> — Publication Trend",
+            font=dict(size=14, color="#CBD5E1"),
+        ),
+        paper_bgcolor="#111827",
+        plot_bgcolor="#0C1222",
+        font=dict(color="#94A3B8", family="Inter, sans-serif"),
+        margin=dict(l=20, r=20, t=50, b=20),
+        xaxis=dict(gridcolor="#1E293B", title="Year", title_font=dict(size=12)),
+        yaxis=dict(gridcolor="#1E293B", title="Papers", title_font=dict(size=12)),
+        height=280
     )
     st.plotly_chart(fig, use_container_width=True)

@@ -1,0 +1,34 @@
+{
+  "corpus": [
+    {
+      "filename": "1706.03762_Attention.pdf",
+      "category": "Clean born-digital",
+      "expected_route": "pymupdf"
+    },
+    {
+      "filename": "1810.04805_BERT.pdf",
+      "category": "Clean born-digital",
+      "expected_route": "pymupdf"
+    },
+    {
+      "filename": "2005.14165_GPT3.pdf",
+      "category": "Long paper (>20 pages)",
+      "expected_route": "pymupdf"
+    },
+    {
+      "filename": "9711200_AdSCFT.pdf",
+      "category": "Multi-column / older format",
+      "expected_route": "docling"
+    },
+    {
+      "filename": "2107.03220_AlphaFold.pdf",
+      "category": "Table/figure-heavy",
+      "expected_route": "docling"
+    },
+    {
+      "filename": "0211159_Perelman.pdf",
+      "category": "Complex math",
+      "expected_route": "docling"
+    }
+  ]
+}

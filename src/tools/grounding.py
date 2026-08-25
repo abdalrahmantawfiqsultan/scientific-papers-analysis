@@ -37,7 +37,10 @@ def search_concepts_in_memory(kg, query: str, top_k: int = 3):
         
     # 2. Semantic Search (Dense Vector)
     query_emb = get_embedder().encode([query])
-    corpus_embs = get_embedder().encode(corpus_texts)
+    
+    # FETCH FROM CACHE (O(1) after first computation)
+    corpus_embs = kg.vectors.get_embeddings(corpus_ids)
+    
     dense_scores = cosine_similarity(query_emb, corpus_embs)[0]
     
     # Rank Dense

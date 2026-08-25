@@ -7,42 +7,30 @@ The **Hidden Scientific Links Discovery Engine (HSLDE)** is an advanced, AI-powe
 
 ## 2. Functional Requirements
 The system must fulfill the following functional capabilities:
-- **Interactive Knowledge Graph Management:** Maintain an in-memory knowledge graph that stores scientific entities (Papers, Methods, Concepts, Fields) and the directed relationships between them (e.g., `USES_METHOD`, `STUDIES`, `BELONGS_TO`).
-- **Agentic Autonomous Discovery:** Allow users to submit complex scientific inquiries. An autonomous pipeline must execute the following phases:
-  - **Grounding Phase:** Expand user queries using LLMs and perform hybrid searches to locate exact concept matches within the graph database.
-  - **Structural Discovery Phase:** Identify topological graph bridges such as shared methods, structural holes, or boundary authors. Fall back to bipartite semantic matching if topological bridges are absent.
-  - **Validation Phase:** Calculate mathematical link probabilities (e.g., Adamic-Adar score) and analyze temporal citation trends to validate candidate bridges.
-  - **Self-Correction Phase:** Perform an adversarial LLM-based peer review to eliminate false positives or trivial connections.
-  - **Synthesis Phase:** Generate a final, rigorously reasoned scientific hypothesis.
-- **2D Graph Exploration:** Provide an interactive canvas allowing users to visualize the full graph, specific $k$-hop ego subgraphs, and shortest paths between entities. It must also incorporate an ad-hoc link prediction tool.
-- **Local Document Ingestion & Extraction:** Allow users to upload scientific papers in PDF format. The system must extract the title, segment and filter dense scientific sentences, leverage structured LLM outputs to extract Subject-Predicate-Object triplets, and inject them into the graph using fuzzy-matched canonicalization.
+- **Interactive Knowledge Graph Management:** Maintain an in-memory knowledge graph that stores scientific entities (Papers, Authors, Methods, Concepts, Datasets, Research Problems) and directed relationships between them.
+- **Edge Provenance (NFR-12):** Every edge MUST carry strict provenance metadata: `source` (restricted to `extracted`, `algorithm`, `citation`, or `user`), `confidence` (float `[0.0, 1.0]`), and a `provenance` dictionary (`document_id`, `extraction_method`, `created_at`, `created_by`).
+- **Interactive Graph Editor:** Allow users to directly manipulate the graph via a UI form. Includes creating/editing/deleting nodes, authoring custom edges (with `user` provenance), two-step safe deletion UX, file reading (FR-25), and web search (FR-28).
+- **Agentic Autonomous Discovery:** Allow users to submit complex scientific inquiries. An autonomous pipeline executes Grounding, Structural Discovery, Validation, Self-Correction, and Synthesis phases. 
+- **2D Graph Exploration:** Provide an interactive canvas allowing users to visualize the full graph, specific $k$-hop ego subgraphs, and shortest paths between entities.
+- **Local Document Ingestion & Extraction:** Allow users to upload scientific papers in PDF format. The system persists the files to `data/uploads/`, routes them through either a fast PyMuPDF parser or a heavy Docling parser based on structure, extracts metadata, identifies dense scientific sentences (via spaCy), and leverages structured LLM outputs to extract entities and relationships.
 
 ---
 
 ## 3. Non-Functional Requirements
-- **Performance & Context Management:** PDF ingestion and NLP routines must compress document texts efficiently (e.g., maximum 4000-character chunks) to avoid blowing out LLM context windows. In-memory operations must compute rapidly to ensure immediate UI feedback.
-- **Scalability & Responsiveness:** The agentic workflow must stream updates progressively to the UI, ensuring the user remains informed about long-running reasoning processes.
-- **Accuracy & Fallbacks:** Entity matching must employ robust fuzzy-matching algorithms (minimum 85% confidence ratio) and fall back to semantic vector similarity when exact lexical matches fail.
-- **Modularity:** The AI reasoning pipeline must be decoupled from the user interface, managed via a finite state machine architecture to allow interruptibility and memory persistence.
-- **Aesthetics & Usability:** The dashboard must be visually striking, featuring custom themes, real-time telemetry headers, and interactive UI components (expanders, status containers, metric displays).
+- **Performance & Context Management:** The system uses a 20,000-character NLP input window bound for spaCy processing to avoid performance bottlenecks, and truncates text to 15,000 characters before sending it to the LLM to preserve context limits.
+- **Scalability & Responsiveness:** The agentic workflow streams updates progressively to the UI.
+- **Resilience (NFR-08):** External API calls implement exponential backoff and retries (e.g., via the `requests` library adapter). The LLM extraction falls back gracefully to a "Partial Ingestion" state (metadata only) if the LLM provider is unreachable.
+- **Aesthetics & Usability:** The dashboard features a restrained style (no glows/gradients) and sidebar navigation, enforcing strict UI design guidelines.
 
 ---
 
 ## 4. Interface Requirements
-The user interface is a web-based dashboard built using Streamlit, comprising the following elements:
-- **Global Header/Telemetry:** Displays the application title alongside live metrics detailing the total count of Knowledge Base Nodes and Indexed Relations.
-- **Agentic Discovery Workspace (Tab 1):**
-  - Text input for inquiry submission.
-  - Execution button ("Run Discovery Agent").
-  - Expandable status logs detailing the execution of the 4-phase LangGraph pipeline in real-time.
-  - A typewriter-effect text stream for the final synthesized scientific hypothesis.
-- **2D Knowledge Graph Explorer (Tab 2):**
-  - **Control Sidebar:** Radio buttons to toggle between "Full Graph", "k-Hop Ego Subgraph" (with radius slider), and "Shortest Path" modes. Select boxes for source and target entity selection. A dedicated Adamic-Adar Link Scorer input form.
-  - **Canvas Area:** A dynamic, interactive PyVis HTML rendering of the selected graph subgraph, capable of panning, zooming, and node highlighting.
-- **Local Paper Ingestion (Tab 3):**
-  - Drag-and-drop file uploader supporting single or multiple PDF files.
-  - "Extract Entities" execution button.
-  - Progressive log window showing ingestion stages: PDF parsing, title extraction, scispaCy filtering, Qwen 2.5 API triplets generation, and graph canonicalization.
+The user interface is a web-based dashboard built using Streamlit, comprising the following tabs:
+- **Global Header/Telemetry:** Displays the application title alongside live metrics.
+- **Research Agent (Tab 1):** Text input for inquiries, progressive LangGraph execution logs, and typewriter-effect synthesis.
+- **Knowledge Graph (Tab 2):** PyVis HTML rendering of the graph subgraph, capable of panning, zooming, and node highlighting.
+- **Local PDF Ingestion (Tab 3):** File uploader supporting PDFs. Progressive log window showing triage, Docling/PyMuPDF parsing, LLM extraction (Qwen/Groq/OpenAI/Gemini), and Graph canonicalization.
+- **Graph Editor (Tab 4):** UI controls to Add/Edit/Delete nodes and relationships interactively.
 
 ---
 
@@ -53,75 +41,57 @@ The application is structured into a modular Python codebase:
 sientificPapersAnalysis/
 ├── main.py                     # Application entry point to run Streamlit
 ├── requirements.txt            # Project dependencies
-├── .env                        # Environment variables (API keys)
+├── .env                        # Environment variables (API keys: GROQ, OPENAI, GOOGLE, HUGGINGFACE)
+├── benchmarks/                 # Automated benchmarking suite
+│   ├── benchmark_router.py     # Parser accuracy and latency benchmarking
+│   └── papers/                 # Test corpus directory
 └── src/
     ├── ui/                     # Frontend user interface
     │   ├── app.py              # Main Streamlit dashboard layout and state
-    │   ├── components.py       # Reusable UI components (stepper, charts)
+    │   ├── components.py       # Reusable UI components
     │   └── styles.py           # Custom CSS styling
     ├── graph/                  # Knowledge Graph management
-    │   ├── in_memory_store.py  # NetworkX wrapper for the graph database
+    │   ├── in_memory_store.py  # NetworkX wrapper for the graph database (with strict provenance and type coercion)
     │   ├── visualizer.py       # PyVis HTML graph rendering
-    │   ├── mock_data.py        # Seed data for initial graph
     │   └── db.py               # Database connections
     ├── agent/                  # Autonomous LLM workflow
     │   ├── workflow.py         # LangGraph state machine definition
-    │   ├── nodes.py            # Logic for each workflow phase
+    │   ├── nodes.py            # Centralized get_llm() router and workflow phase logic
     │   └── state.py            # TypedDict defining the agent's memory
+    ├── ingestion/              # Ingestion pipeline
+    │   ├── docling_parser.py   # Heavy multimodal parser for complex layouts
+    │   ├── pymupdf_parser.py   # Fast text-based parser for born-digital PDFs
+    │   ├── router.py           # Smart routing between parsers based on triage heuristics
+    │   └── schema.py           # Pydantic schemas for extracted entities
     └── tools/                  # Analytical algorithms and capabilities
+        ├── text_processing.py  # spaCy dense-sentence and entity extraction (NER), dateutil normalization
         ├── grounding.py        # Embeddings and BM25 RRF hybrid search
         ├── discovery.py        # Topological and semantic bridge discovery
-        ├── validation.py       # Link probability and temporal analysis
-        └── document_loader.py  # Local PDF parsing and entity extraction
+        └── validation.py       # Link probability and temporal analysis
 ```
 
 ### Key Components
-- `main.py`: The application entry point which programmatically bootstraps the Streamlit server.
-- `src/ui/app.py`: The frontend logic. It manages Streamlit state, renders the multi-tab layout, and coordinates event streams from the LangGraph workflow.
-- `src/graph/in_memory_store.py`: Implements `InMemoryKnowledgeGraph` acting as a wrapper over `networkx.MultiDiGraph`. Handles node/edge insertion, subgraph extraction, and shortest-path queries.
-- `src/graph/visualizer.py`: Facilitates the conversion of NetworkX graphs into interactive `pyvis` HTML canvases.
-- `src/agent/workflow.py`: Defines the LangGraph `StateGraph`, wiring together nodes (functions) and conditional routing edges (e.g., early exits if no topological bridges are discovered).
-- `src/agent/nodes.py`: Implements the discrete phases of the agentic pipeline. It binds LangChain tools to the `ChatHuggingFace` LLM, allowing the model to trigger database searches, structural discoveries, and mathematical validations dynamically.
-- `src/tools/grounding.py`: Houses the embedding models and implements Reciprocal Rank Fusion (RRF) for hybrid search operations within the graph.
-- `src/tools/discovery.py` & `src/tools/validation.py`: Contain the specialized graph analytics routines (finding shared methods, computing semantic vector bridges, Adamic-Adar calculation).
+- `src/ui/app.py`: Coordinates event streams, the multi-tab layout, File Path isolation (FR-25), and handles `requests.exceptions.RequestException` to trigger "Partial Ingestion".
+- `src/graph/in_memory_store.py`: `InMemoryKnowledgeGraph` wrapper over `networkx.MultiDiGraph`. Enforces strict `self._VALID_EDGE_SOURCES` on `add_relation`, and provides node/edge mutation primitives (`add_entity`, `edit_entity`, `delete_entity`, `delete_relation`).
+- `src/agent/nodes.py`: Contains the `get_llm()` central router which dynamically selects from Groq, OpenAI, Gemini, or HuggingFace based on available environment variables.
+- `src/ingestion/router.py`: Determines whether to use `DoclingIngestor` or `PyMuPDFParser`.
+- `src/tools/text_processing.py`: Handles dense scientific sentence extraction and author/organization NER using `scispacy`.
 
 ---
 
 ## 6. Packages and Libraries Used
-- **User Interface & Visualization:**
-  - `streamlit`, `streamlit.components.v1`: Frontend framework and component rendering.
-  - `plotly`: Used for temporal charts and quantitative visualizations.
-  - `pyvis`: Interactive HTML-based network graph visualization.
-- **Graph & Mathematics:**
-  - `networkx`: Core engine for creating, manipulating, and studying the structure of complex networks.
-  - `numpy`: Numerical operations for matrix and vector calculations.
-- **AI, Agents, and LLM Orchestration:**
-  - `langchain`, `langchain-huggingface`, `langchain-community`: For prompt templating, tool binding, and LLM API interaction (specifically Qwen 2.5 via HuggingFace).
-  - `langgraph`: To model the multi-agent reasoning flow as a state machine.
-  - `pydantic`: For enforcing strict schemas in structured JSON data extraction.
-- **Natural Language Processing & Embeddings:**
-  - `sentence-transformers`: For generating dense semantic vector embeddings (`all-mpnet-base-v2`) and cross-encoder similarity scoring (`stsb-roberta-base`).
-  - `spacy`, `scispacy` (`en_core_sci_sm`): For specialized scientific named entity recognition (NER) and sentence segmentation.
-  - `rank-bm25`: For sparse lexical search capabilities.
-  - `rapidfuzz`: To perform fast string matching and fuzzy logic during entity canonicalization.
-  - `scikit-learn`: For calculating pairwise cosine similarities between high-dimensional vectors.
-- **File Processing & Environment:**
-  - `pypdf`: To parse and extract textual content from local PDF files.
-  - `python-dotenv`: To load sensitive API keys from `.env` files.
+- **User Interface & Visualization:** `streamlit`, `plotly`, `pyvis`.
+- **Graph & Mathematics:** `networkx`, `numpy`.
+- **AI, Agents, and LLM Orchestration:** `langchain`, `langchain-groq`, `langchain-openai`, `langchain-google-genai`, `langchain-huggingface`, `langgraph`, `pydantic`.
+- **Natural Language Processing & Embeddings:** `sentence-transformers`, `spacy`, `scispacy` (`en_core_sci_sm`), `rank-bm25`, `rapidfuzz`, `scikit-learn`.
+- **File Processing & Environment:** `docling`, `pymupdf` (`fitz`), `python-dateutil`, `requests`, `python-dotenv`.
 
 ---
 
 ## 7. Algorithms Used
-The engine utilizes several advanced algorithmic approaches to process data and infer new scientific links:
-- **Hybrid Search via Reciprocal Rank Fusion (RRF):**
-  - **Algorithm:** Combines a Sparse Lexical Search (BM25Okapi) with a Dense Vector Search (Cosine Similarity). RRF calculates a combined score for each node using the formula: $RRF\_Score = \frac{1}{k + dense\_rank} + \frac{1}{k + sparse\_rank}$ (where $k=60$). This ensures high-quality retrieval combining keyword matching and contextual meaning.
-- **Bidirectional Soft-Jaccard (Bipartite Semantic Matching):**
-  - **Algorithm:** Maps concepts between two disparate papers using pairwise cosine similarity matrices. It calculates the maximum bidirectional alignment and derives a soft similarity score to inject semantic bridges when exact topological links fail.
-- **Adamic-Adar Index:**
-  - **Algorithm:** A topological link prediction metric implemented via NetworkX. It computes the probability of a hidden link based on the number of shared features (or neighbors) between two nodes, logarithmically weighted by the degree of those shared nodes.
-- **Cross-Encoder Verification (STS-B):**
-  - **Algorithm:** After dense retrieval, candidate pairs are passed through a HuggingFace cross-encoder (`stsb-roberta-base`) to accurately predict joint semantic relevance, scoring the interaction between pairs simultaneously.
-- **Shortest Path and $k$-Hop Ego Extraction:**
-  - **Algorithm:** Uses Breadth-First Search (BFS) / Dijkstra's shortest path underlying NetworkX to evaluate paths and retrieve isolated neighborhoods (ego graphs) within a parameterized radius ($k$-hops).
-- **Fuzzy String Matching (Levenshtein Distance):**
-  - **Algorithm:** Used during PDF ingestion (`rapidfuzz`) to map newly extracted triplet entities against existing canonical nodes in the graph if their similarity ratio exceeds a predefined threshold (85%).
+- **Hybrid Search via Reciprocal Rank Fusion (RRF)**
+- **Bidirectional Soft-Jaccard (Bipartite Semantic Matching)**
+- **Adamic-Adar Index**
+- **Cross-Encoder Verification (STS-B)**
+- **Shortest Path and $k$-Hop Ego Extraction**
+- **Fuzzy String Matching (Levenshtein Distance)**

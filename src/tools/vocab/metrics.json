@@ -1,0 +1,15 @@
+[
+  "Accuracy", "Precision", "Recall", "F1 Score", "F1-Score", "F1",
+  "Area Under the Curve", "AUC", "ROC AUC", "Average Precision", "AP", "mAP",
+  "Mean Squared Error", "MSE", "Root Mean Squared Error", "RMSE",
+  "Mean Absolute Error", "MAE", "Mean Absolute Percentage Error", "MAPE",
+  "Intersection over Union", "IoU", "mIoU",
+  "BLEU", "ROUGE", "METEOR", "CIDEr", "Perplexity", "PPL",
+  "Exact Match", "EM",
+  "Log-Loss", "Cross-Entropy Loss", "Negative Log Likelihood", "NLL",
+  "Top-1 Accuracy", "Top-5 Accuracy",
+  "NDCG", "MRR", "Hit Ratio",
+  "Inception Score", "IS", "Fréchet Inception Distance", "FID",
+  "Throughput", "Latency", "Speedup", "Execution Time",
+  "FLOPs", "Parameters", "Memory Usage"
+]

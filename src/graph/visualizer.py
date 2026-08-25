@@ -2,15 +2,19 @@ import os
 import networkx as nx
 from pyvis.network import Network
 
-# Color palette mapped by entity type
+# Color palette mapped by entity type — indigo-anchored with distinct hues per type
 COLOR_PALETTE = {
-    "Paper": {"background": "#3B82F6", "border": "#1D4ED8", "highlight": "#60A5FA"},     # Blue
-    "Method": {"background": "#10B981", "border": "#047857", "highlight": "#34D399"},    # Green / Teal
-    "Concept": {"background": "#F59E0B", "border": "#B45309", "highlight": "#FBBF24"},   # Amber
-    "Field": {"background": "#8B5CF6", "border": "#6D28D9", "highlight": "#A78BFA"},     # Purple
-    "Author": {"background": "#EC4899", "border": "#BE185D", "highlight": "#F472B6"},    # Pink
-    "Dataset": {"background": "#06B6D4", "border": "#0E7490", "highlight": "#22D3EE"},   # Cyan
-    "Default": {"background": "#6B7280", "border": "#374151", "highlight": "#9CA3AF"}    # Gray
+    "Paper":           {"background": "#4F46E5", "border": "#3730A3", "highlight": "#818CF8"},     # Indigo
+    "Author":          {"background": "#2563EB", "border": "#1D4ED8", "highlight": "#60A5FA"},     # Blue
+    "Method":          {"background": "#8B5CF6", "border": "#6D28D9", "highlight": "#A78BFA"},     # Violet
+    "Dataset":         {"background": "#0D9488", "border": "#0F766E", "highlight": "#2DD4BF"},     # Teal
+    "Concept":         {"background": "#D97706", "border": "#B45309", "highlight": "#FBBF24"},     # Amber
+    "Metric":          {"background": "#0891B2", "border": "#0E7490", "highlight": "#22D3EE"},     # Cyan
+    "ResearchProblem": {"background": "#DC2626", "border": "#B91C1C", "highlight": "#F87171"},     # Red
+    "Result":          {"background": "#9333EA", "border": "#7E22CE", "highlight": "#C084FC"},     # Purple
+    "Organization":    {"background": "#EA580C", "border": "#C2410C", "highlight": "#FB923C"},     # Orange
+    "Field":           {"background": "#475569", "border": "#334155", "highlight": "#94A3B8"},     # Slate
+    "Default":         {"background": "#475569", "border": "#334155", "highlight": "#94A3B8"},     # Slate
 }
 
 class GraphVisualizer2D:
@@ -31,8 +35,8 @@ class GraphVisualizer2D:
             width=self.width, 
             directed=True, 
             notebook=False, 
-            bgcolor="#0F172A",          # Slate dark theme
-            font_color="#F8FAFC"
+            bgcolor="#0C1222",          # Deep navy — matches app background
+            font_color="#E2E8F0"
         )
 
         if not graph.nodes:
@@ -40,7 +44,7 @@ class GraphVisualizer2D:
 
         # Calculate degree centrality to scale node sizes dynamically
         degrees = dict(graph.degree())
-        max_degree = max(degrees.values()) if degrees else 1
+        max_degree = max(1, max(degrees.values()) if degrees else 1)
 
         # 1. Add Nodes with Custom Styling & Tooltips
         for node_id, data in graph.nodes(data=True):
@@ -58,12 +62,13 @@ class GraphVisualizer2D:
 
             # Rich HTML Tooltip
             tooltip = f"""
-            <div style="font-family: Arial; padding: 6px; font-size: 13px;">
-                <b style="color: {palette['background']};">[{label}]</b> <b>{data.get('name', node_id)}</b><br/>
-                <hr style="margin: 4px 0; border: 0.5px solid #475569;"/>
-                <b>Connections:</b> {node_deg}<br/>
-                {f"<b>Year:</b> {data.get('year')}<br/>" if 'year' in data else ""}
-                {f"<b>Description:</b> {data.get('description')}<br/>" if 'description' in data else ""}
+            <div style="font-family: 'Inter', Arial, sans-serif; padding: 10px; font-size: 13px; background: #1E293B; border-radius: 8px; border: 1px solid #334155; max-width: 300px;">
+                <div style="color: {palette['background']}; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;">{label}</div>
+                <div style="font-weight: 700; font-size: 15px; color: #F1F5F9; margin-bottom: 6px;">{data.get('name', node_id)}</div>
+                <hr style="margin: 6px 0; border: 0.5px solid #334155;"/>
+                <span style="color: #94A3B8;">Connections:</span> <b style="color: #A5B4FC;">{node_deg}</b><br/>
+                {f'<span style="color: #94A3B8;">Year:</span> <b style="color: #FCD34D;">{data.get("year")}</b><br/>' if 'year' in data else ''}
+                {f'<div style="color: #94A3B8; margin-top: 4px; font-size: 12px; line-height: 1.4;">{str(data.get("description", ""))[:150]}</div>' if 'description' in data else ''}
             </div>
             """
 
@@ -82,32 +87,38 @@ class GraphVisualizer2D:
                     "highlight": {"background": palette["highlight"], "border": "#FFFFFF"}
                 },
                 borderWidth=2,
-                font={"size": 14, "color": "#FFFFFF", "face": "Helvetica"}
+                font={"size": 13, "color": "#E2E8F0", "face": "Inter, Helvetica, Arial"}
             )
 
         # 2. Add Edges with Relationship Labels
         for source, target, key, data in graph.edges(keys=True, data=True):
             relation = data.get("relation", key)
             
-            # Highlight AI-discovered semantic bridges with glowing red/orange
-            if relation == "AGENT_DISCOVERY":
-                edge_color = "#EF4444"
-                width = 4
+            confidence = data.get("confidence", "")
+            conf_str = f" · {confidence:.2f} confidence" if isinstance(confidence, float) else ""
+            
+            if data.get("source") == "algorithm":
+                method = data.get("provenance", {}).get("extraction_method", "semantic similarity")
+                edge_color = "#6366F1" # Muted indigo
+                width = 2
                 dash = True
+                hover_title = f"◆ Inferred relationship\n{relation}{conf_str}\nMethod: {method}"
             else:
-                edge_color = "#64748B"
-                width = 1
+                doc = data.get("provenance", {}).get("document_id", "Unknown")
+                edge_color = "#475569"
+                width = 1.5
                 dash = False
+                hover_title = f"✓ Extracted\n{relation}\nSource: {doc}"
 
             net.add_edge(
                 source, target,
                 label=relation,
-                title=f"Relation: {relation} | {data.get('rationale', '')}",
+                title=hover_title,
                 color=edge_color,
                 width=width,
                 dashes=dash,
                 arrows="to",
-                font={"size": 10, "color": "#F8FAFC", "align": "middle"}
+                font={"size": 9, "color": "#94A3B8", "align": "middle"}
             )
 
         # 3. Apply Optimized Physics (Barnes-Hut algorithm with smooth damping)

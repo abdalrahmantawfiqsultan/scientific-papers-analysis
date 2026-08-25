@@ -19,9 +19,32 @@ def get_llm():
     global _llm_instance
     if _llm_instance is not None:
         return _llm_instance
+        
     from dotenv import load_dotenv
-    from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+    import os
+    
     load_dotenv()
+    
+    # Priority 1: Groq
+    if os.getenv("GROQ_API_KEY"):
+        from langchain_groq import ChatGroq
+        _llm_instance = ChatGroq(model_name="openai/gpt-oss-120b", temperature=0.1)
+        return _llm_instance
+        
+    # Priority 2: OpenAI
+    if os.getenv("OPENAI_API_KEY"):
+        from langchain_openai import ChatOpenAI
+        _llm_instance = ChatOpenAI(model="gpt-4o-mini", temperature=0.1)
+        return _llm_instance
+        
+    # Priority 3: Google Gemini
+    if os.getenv("GOOGLE_API_KEY"):
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        _llm_instance = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.1)
+        return _llm_instance
+        
+    # Fallback: HuggingFace (Legacy)
+    from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
     hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
     llm_endpoint = HuggingFaceEndpoint(
         repo_id="Qwen/Qwen2.5-72B-Instruct",
@@ -250,7 +273,7 @@ Execute your tools to synthesize a hypothesis.
         papers = [n for n, d in kg.graph.nodes(data=True) if d.get("label") == "Paper"]
         
         if len(papers) >= 2:
-            # Precompute embeddings
+            # Precompute embeddings from Cache
             paper_concepts = {}
             paper_descs = {}
             for p in papers:
@@ -262,10 +285,22 @@ Execute your tools to synthesize a hypothesis.
                     if kg.graph.nodes[u].get("label") in ["Concept", "Method", "Dataset"]:
                         neighbors.add(u)
                         
-                c_names = [kg.graph.nodes[n].get("name", n) for n in neighbors] or [kg.graph.nodes[p].get("name", p)]
-                c_embs = embedder.encode(c_names, normalize_embeddings=True)
+                neighbor_list = list(neighbors)
+                if not neighbor_list:
+                    neighbor_list = [p]
+                    
+                c_names = [kg.graph.nodes[n].get("name", n) for n in neighbor_list]
+                
+                # O(1) Cache fetch instead of O(N) recompute
+                c_embs = kg.vectors.get_embeddings(neighbor_list)
+                
+                # Bipartite similarity expects normalized embeddings
+                from sklearn.preprocessing import normalize
+                if len(c_embs) > 0:
+                    c_embs = normalize(c_embs)
+                
                 paper_concepts[p] = {"names": c_names, "embs": c_embs}
-                paper_descs[p] = kg.graph.nodes[p].get("description", kg.graph.nodes[p].get("name", p))
+                paper_descs[p] = kg._get_embedding_text(p)
 
             for i in range(len(papers)):
                 for j in range(i + 1, len(papers)):
@@ -310,18 +345,29 @@ Execute your tools to synthesize a hypothesis.
                         }
                         candidate_bridges.append(bridge_info)
 
+                        import datetime
+                        agent_prov = {
+                            "document_id": None,
+                            "extraction_method": "agent_synthesis",
+                            "created_at": datetime.datetime.now().isoformat(),
+                            "created_by": None
+                        }
+                        
                         # Inject the link into the visual graph immediately
                         kg.add_relation(
                             p1,
                             p2,
                             "AGENT_DISCOVERY",
-                            {
+                            source="algorithm",
+                            confidence=max(0.0, min(1.0, float(bridge_info["similarity_score"]))),
+                            provenance=agent_prov,
+                            properties={
                                 "rationale": bridge_info["rationale"],
                                 "score": bridge_info["similarity_score"],
                                 "top_bridge": top_bridges[0]["concept_a"] + " ↔ " + top_bridges[0]["concept_b"] if top_bridges else "Direct Semantic Alignment"
                             }
                         )
-
+                        
         print(f"--- [DEBUG] END SEMANTIC SEARCH. Found {len(candidate_bridges)} bridges. ---")
 
     print(f"Discovered {len(candidate_bridges)} semantic/structural bridges.")
@@ -441,15 +487,19 @@ def phase_4_synthesis(state: DiscoveryState) -> DiscoveryState:
     
     prompt = f"""
     You are the HSLDE Engine. 
-    Look at the candidate bridges discovered below. YOU MUST write your hypothesis about these exact bridges!
+    You must write your hypothesis about the discovered bridges below.
     
-    Discovered Bridges:
-    {state.get("candidate_bridges", [])}
+    CRITICAL RULE (FR-20): You must NEVER present an algorithmically inferred edge as an established scientific fact. 
+    Any bridges listed as "Algorithmic Predictions" are inferences made by our graph algorithms, NOT facts extracted directly from the papers. 
+    You must frame these appropriately (e.g., "The algorithm predicts a potential link...", "Graph similarity suggests...").
     
-    Validated Links (if any):
-    {json.dumps(validated_data)}
+    Algorithmic Predictions (Source: algorithm):
+    {json.dumps(state.get("candidate_bridges", []), indent=2)}
     
-    Write a 3-sentence scientific hypothesis explaining why these concepts/papers are highly similar.
+    Validated Evidence (if any):
+    {json.dumps(validated_data, indent=2)}
+    
+    Write a 3-sentence scientific hypothesis explaining why these concepts/papers are highly similar, strictly adhering to the CRITICAL RULE above.
     """
     
     response = get_llm().invoke([SystemMessage(content=prompt)])

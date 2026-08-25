@@ -1,0 +1,11 @@
+[
+  "ImageNet", "COCO", "CIFAR-10", "CIFAR-100", "MNIST", "Fashion-MNIST",
+  "GLUE", "SuperGLUE", "SQuAD", "SQuAD 2.0", "CoNLL-2003", "OntoNotes",
+  "WikiText-103", "WikiText-2", "Penn Treebank", "PTB", "WMT14", "WMT",
+  "IMDB", "SST-2", "Yelp Reviews", "Amazon Reviews", "AG News",
+  "MS MARCO", "TREC", "Natural Questions", "TriviaQA", "HotpotQA",
+  "LFW", "CelebA", "Kitti", "Cityscapes", "Pascal VOC",
+  "MovieLens", "Netflix Prize", "Cora", "CiteSeer", "PubMed",
+  "Kinetics", "UCF101", "HMDB51", "AudioSet", "LibriSpeech",
+  "Common Crawl", "The Pile", "C4", "Wikipedia"
+]

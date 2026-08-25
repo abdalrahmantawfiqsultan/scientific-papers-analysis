@@ -6,9 +6,15 @@ class Method(BaseModel):
     name: str = Field(description="The exact name of the method or technique")
     category: str = Field(description="The general category of the method (e.g., Deep Learning, Statistics)")
 
+# Alias for backwards compatibility
+ScientificMethod = Method
+
 class Researcher(BaseModel):
     model_config = ConfigDict(graph_id_fields=["name"])
     name: str = Field(description="The full name of the author")
+
+# Alias for backwards compatibility
+Author = Researcher
 
 class Dataset(BaseModel):
     model_config = ConfigDict(graph_id_fields=["name"])

@@ -78,27 +78,3 @@ def extract_dense_sentences_and_entities(
 
     compressed_text = " ".join(dense_sentences)
     return compressed_text[:max_chars], entities
-
-
-def normalize_date_to_year(date_text: str) -> int | None:
-    """Attempt to parse a raw date string (from spaCy NER) into an integer year.
-    Uses dateutil.parser for flexible parsing of formats like:
-      'March 2023', '2023-03-15', 'in 2019', '15th January 2020'
-    Falls back to regex extraction of a 4-digit year if dateutil fails.
-    Returns None if no year can be extracted."""
-    import re
-
-    # Quick regex pass first — catches "2023", "in 2019", etc.
-    year_match = re.search(r'\b(19|20)\d{2}\b', date_text)
-
-    try:
-        from dateutil import parser as dateutil_parser
-        parsed = dateutil_parser.parse(date_text, fuzzy=True)
-        return parsed.year
-    except Exception:
-        pass
-
-    if year_match:
-        return int(year_match.group(0))
-
-    return None

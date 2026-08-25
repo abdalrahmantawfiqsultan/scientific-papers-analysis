@@ -1,0 +1,16 @@
+[
+  "BERT", "RoBERTa", "Transformer", "GPT", "LLaMA", "Qwen", "Adam", "AdamW", 
+  "Stochastic Gradient Descent", "SGD", "Convolutional Neural Network", "CNN",
+  "Recurrent Neural Network", "RNN", "LSTM", "GRU", "Support Vector Machine", 
+  "SVM", "Random Forest", "Gradient Boosting", "XGBoost", "LightGBM", "CatBoost",
+  "Adamic-Adar", "BM25", "Cosine Similarity", "TF-IDF", "Jaccard Similarity",
+  "PageRank", "Leiden algorithm", "Louvain method", "K-Means", "DBSCAN",
+  "PCA", "t-SNE", "UMAP", "Autoencoder", "Variational Autoencoder", "GAN",
+  "Reinforcement Learning", "PPO", "DQN", "A3C", "Q-Learning", "Beam Search",
+  "Attention Mechanism", "Self-Attention", "Multi-Head Attention",
+  "Reciprocal Rank Fusion", "RRF", "Bipartite Matching", "Knowledge Graph",
+  "Graph Neural Network", "GNN", "Graph Convolutional Network", "GCN", "GraphSAGE",
+  "Named Entity Recognition", "NER", "Dependency Parsing", "Part-of-Speech Tagging",
+  "Word2Vec", "GloVe", "FastText", "ELMo", "Doc2Vec", "Sentence Transformers",
+  "Cross-Encoder", "Bi-Encoder"
+]
